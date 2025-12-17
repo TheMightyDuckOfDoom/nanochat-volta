@@ -47,7 +47,7 @@ parser.add_argument("--num_iterations", type=int, default=-1, help="explicit num
 parser.add_argument("--target_flops", type=float, default=-1.0, help="calculate num_iterations to reach target_flops (-1 = disable)")
 parser.add_argument("--target_param_data_ratio", type=int, default=8, help="calculate num_iterations to maintain data:param ratio (Chinchilla=20, -1 = disable)")
 # Optimization
-parser.add_argument("--device_batch_size", type=int, default=32, help="per-device batch size")
+parser.add_argument("--device_batch_size", type=int, default=2, help="per-device batch size")
 parser.add_argument("--total_batch_size", type=int, default=524288, help="total batch size in tokens")
 parser.add_argument("--embedding_lr", type=float, default=0.3, help="learning rate for embedding parameters (Adam)")
 parser.add_argument("--unembedding_lr", type=float, default=0.004, help="learning rate for unembedding parameters (Adam)")
@@ -76,7 +76,8 @@ user_config = vars(args).copy()  # for logging
 device_type = autodetect_device_type() if args.device_type == "" else args.device_type
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
 master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
-autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.bfloat16) if device_type == "cuda" else nullcontext()
+autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=torch.float16) if device_type == "cuda" else nullcontext()
+autoscaler = torch.amp.GradScaler()
 synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 get_max_memory = torch.cuda.max_memory_allocated if device_type == "cuda" else lambda: 0
 
@@ -244,6 +245,7 @@ else:
     smooth_train_loss = loop_state["smooth_train_loss"]
     total_training_time = loop_state["total_training_time"]
 
+
 # -----------------------------------------------------------------------------
 # Training loop
 while True:
@@ -343,7 +345,7 @@ while True:
             loss = model(x, y)
         train_loss = loss.detach() # for logging
         loss = loss / grad_accum_steps # each .backward() is a grad sum => normalize loss here
-        loss.backward()
+        autoscaler.scale(loss).backward()
         x, y, dataloader_state_dict = next(train_loader) # prefetch the next batch while the GPU is busy with forward/backward
     # step the optimizers
     lrm = get_lr_multiplier(step)
@@ -354,7 +356,8 @@ while True:
     for group in muon_optimizer.param_groups:
         group["momentum"] = muon_momentum
     for opt in optimizers:
-        opt.step()
+        autoscaler.step(opt)
+    autoscaler.update()
     model.zero_grad(set_to_none=True)
     synchronize()
     t1 = time.time()
@@ -368,8 +371,8 @@ while True:
     pct_done = 100 * step / num_iterations
     tok_per_sec = int(args.total_batch_size / dt)
     flops_per_sec = num_flops_per_token * args.total_batch_size / dt
-    promised_flops_per_sec_h100 = 989e12 * ddp_world_size # bfloat16 H100 SXM and without 2:4 sparsity
-    mfu = 100 * flops_per_sec / promised_flops_per_sec_h100 # in %
+    promised_flops_per_sec = ddp_world_size * 125e12 #989e12 bfloat16 H100 SXM and without 2:4 sparsity, 71e12 float16->float32 3090, 125e12 float16 V100
+    mfu = 100 * flops_per_sec / promised_flops_per_sec # in %
     if step > 10:
         total_training_time += dt # only count the time after the first 10 steps
     # Calculate ETA based on average time per step (excluding first 10 steps)

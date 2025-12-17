@@ -36,7 +36,7 @@ parser = argparse.ArgumentParser(description="Reinforcement learning on GSM8K")
 parser.add_argument("--run", type=str, default="dummy", help="wandb run name ('dummy' disables wandb logging)")
 # Runtime
 parser.add_argument("--device_type", type=str, default="", help="cuda|cpu|mps (empty = autodetect)")
-parser.add_argument("--dtype", type=str, default="bfloat16", help="float32|bfloat16")
+parser.add_argument("--dtype", type=str, default="float16", help="float32|float16")
 # Model loading
 parser.add_argument("--source", type=str, default="sft", help="mid|sft - which checkpoint to load from")
 parser.add_argument("--model_tag", type=str, default=None, help="model tag to load from")
@@ -69,8 +69,9 @@ user_config = vars(args).copy()
 device_type = autodetect_device_type() if args.device_type == "" else args.device_type
 ddp, ddp_rank, ddp_local_rank, ddp_world_size, device = compute_init(device_type)
 master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
-ptdtype = torch.float32 if args.dtype == 'float32' else torch.bfloat16
-autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=ptdtype) if device_type == "cuda" else nullcontext()
+dtype = torch.float32 if args.dtype == 'float32' else torch.float16
+autocast_ctx = torch.amp.autocast(device_type="cuda", dtype=dtype)
+autoscaler = torch.amp.GradScaler()
 
 # wandb logging init
 use_dummy_wandb = args.run == "dummy" or not master_process
@@ -280,7 +281,7 @@ for step in range(num_steps):
             # Note, there is no need to add PPO ratio+clip because we are on policy
             # Finally, formulate the loss that we want to minimize (instead of objective we wish to maximize)
             loss = -pg_obj
-            loss.backward()
+            autoscaler.scale(loss).backward()
             print0(f"Step {step}/{num_steps} | Example step {example_step} | Pass {pass_idx} | loss: {loss.item():.6f} | Average reward: {rewards.mean().item()}")
         # For logging
         rewards_list.append(rewards_all.mean().item())
@@ -309,7 +310,8 @@ for step in range(num_steps):
         for group in opt.param_groups:
             group["lr"] = group["initial_lr"] * lrm
     for opt in optimizers: # then step the optimizers
-        opt.step()
+        autoscaler.step(opt)
+    autoscaler.update()
     model.zero_grad(set_to_none=True)
     wandb_run.log({
         "step": step,

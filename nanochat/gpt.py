@@ -23,6 +23,9 @@ from nanochat.common import get_dist_info, print0
 from nanochat.muon import Muon, DistMuon
 from nanochat.adamw import DistAdamW
 
+NAN_CHECK = False
+torch.autograd.set_detect_anomaly(NAN_CHECK)
+
 @dataclass
 class GPTConfig:
     sequence_len: int = 1024
@@ -142,7 +145,7 @@ class GPT(nn.Module):
         if padded_vocab_size != config.vocab_size:
             print0(f"Padding vocab_size from {config.vocab_size} to {padded_vocab_size} to be divisible by {pad_vocab_size_to}")
         self.transformer = nn.ModuleDict({
-            "wte": nn.Embedding(padded_vocab_size, config.n_embd),
+            "wte": nn.Embedding(config.vocab_size, config.n_embd, dtype=torch.float32),
             "h": nn.ModuleList([Block(config, layer_idx) for layer_idx in range(config.n_layer)]),
         })
         self.lm_head = nn.Linear(config.n_embd, padded_vocab_size, bias=False)
@@ -191,10 +194,6 @@ class GPT(nn.Module):
         cos, sin = self._precompute_rotary_embeddings(self.rotary_seq_len, head_dim)
         self.cos, self.sin = cos, sin
 
-        # Cast token embeddings to bf16: optimizer can tolerate it and it saves memory
-        if self.transformer.wte.weight.device.type == "cuda":
-            self.transformer.wte.to(dtype=torch.bfloat16)
-
     def _precompute_rotary_embeddings(self, seq_len, head_dim, base=10000, device=None):
         # TODO: bump base theta more? e.g. 100K is more common more recently
         # autodetect the device from model embeddings
@@ -208,7 +207,7 @@ class GPT(nn.Module):
         # calculate the rotation frequencies at each (time, channel) pair
         freqs = torch.outer(t, inv_freq)
         cos, sin = freqs.cos(), freqs.sin()
-        cos, sin = cos.bfloat16(), sin.bfloat16() # keep them in bfloat16
+        cos, sin = cos.half(), sin.half() # keep them in float16
         cos, sin = cos[None, :, None, :], sin[None, :, None, :] # add batch and head dims for later broadcasting
         return cos, sin
 
@@ -280,24 +279,35 @@ class GPT(nn.Module):
         # Grab the rotary embeddings for the current sequence length (they are of shape (1, seq_len, 1, head_dim/2))
         assert T <= self.cos.size(1), f"Sequence length grew beyond the rotary embeddings cache: {T} > {self.cos.size(1)}"
         assert idx.device == self.cos.device, f"Rotary embeddings and idx are on different devices: {idx.device} != {self.cos.device}"
-        assert self.cos.dtype == torch.bfloat16, "Rotary embeddings must be in bfloat16"
+        assert self.cos.dtype == torch.float16, "Rotary embeddings must be in float16"
         # if kv cache exists, we need to offset the rotary embeddings to the current position in the cache
         T0 = 0 if kv_cache is None else kv_cache.get_pos()
         cos_sin = self.cos[:, T0:T0+T], self.sin[:, T0:T0+T] # truncate cache to current sequence length
 
         # Forward the trunk of the Transformer
         x = self.transformer.wte(idx)
+        if NAN_CHECK and torch.isnan(x).any():
+            raise ValueError("NaN detected in token embeddings after embedding lookup")
         x = norm(x)
-        for block in self.transformer.h:
+        if NAN_CHECK and torch.isnan(x).any():
+            raise ValueError("NaN detected in token embeddings after norm")
+        for idx, block in enumerate(self.transformer.h):
             x = block(x, cos_sin, kv_cache)
+            if NAN_CHECK and torch.isnan(x).any():
+                raise ValueError(f"NaN detected in transformer block {idx} output")
         x = norm(x)
 
         # Forward the lm_head (compute logits)
         softcap = 15 # smoothly cap the logits to the range [-softcap, softcap]
-        logits = self.lm_head(x) # (B, T, padded_vocab_size) <- very big tensor, large amount of memory
-        logits = logits[..., :self.config.vocab_size] # slice to remove padding
+        if NAN_CHECK and torch.isnan(x).any():
+            raise ValueError("NaN detected in transformer output before lm_head")
+        logits = self.lm_head(x) # (B, T, vocab_size) <- very big tensor, large amount of memory
+        if NAN_CHECK and torch.isnan(logits).any():
+            raise ValueError("NaN detected in logits before softcap")
         logits = logits.float() # switch to fp32 for logit softcap and loss computation
         logits = softcap * torch.tanh(logits / softcap) # squash the logits
+        if NAN_CHECK and torch.isnan(logits).any():
+            raise ValueError("NaN detected in logits")
 
         if targets is not None:
             # training: given the targets, compute and return the loss
