@@ -1,3 +1,14 @@
+## Changes for Volta
+- Require Torch 2.8.0 (last version with Volta support)
+- Replace BF16 with FP16, enabling usage of 1st generation Tensor Cores
+- Added Torch GradScaler
+- Tuned Learning Rate to avoid running into NaN losses
+- Modified Optimizers to not update parameters when gradients contain NaNs or Infs
+
+Tested on 2x V100 SXM2 16GBs
+
+© Tobias Senti 2025
+
 # nanochat
 
 ![nanochat logo](dev/nanochat.png)

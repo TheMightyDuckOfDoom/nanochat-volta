@@ -48,6 +48,11 @@ class DistAdamW(torch.optim.Optimizer):
                 lr = group['lr'] * getattr(p, "lr_mul", 1.0)
                 state = self.state[p]
                 g_slice = grad_slices[idx]
+                if g_slice.isnan().any() or g_slice.isinf().any():
+                    idx += 1
+                    all_reduce_futures.append(dist.all_gather_into_tensor(p, p_slice, async_op=True).get_future())
+                    print(f"Rank {rank} skipping NaN/Inf gradient for param slice with shape {p_slice.shape}")
+                    continue
                 # State init
                 if not state:
                     state['step'] = torch.tensor(0, dtype=torch.int64, device=p.device)

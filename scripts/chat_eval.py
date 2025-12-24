@@ -62,7 +62,7 @@ def run_generative_eval(task_object, tokenizer, model, engine, num_samples, max_
         num_passed += int(passed)
 
         # Logging (overwrite the same line in the console)
-        print(f"\r\033[KRank {ddp_rank} | {num_passed}/{total} ({100*num_passed/total:.2f}%)", end='', flush=True)
+        print(f"\r\033[KRank {ddp_rank} | {num_passed}/{total} ({100*num_passed/total:.2f}%) of {num_problems // ddp_world_size}", end='', flush=True)
 
     # Finish the in-place progress line with a newline before final summary
     print()

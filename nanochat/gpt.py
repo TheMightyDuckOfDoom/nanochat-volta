@@ -260,8 +260,7 @@ class GPT(nn.Module):
             dict(params=embedding_params, lr=embedding_lr * dmodel_lr_scale),
         ]
         adamw_kwargs = dict(betas=adam_betas, eps=1e-10, weight_decay=weight_decay)
-        AdamWFactory = DistAdamW if ddp else partial(torch.optim.AdamW, fused=True)
-        adamw_optimizer = AdamWFactory(adam_groups, **adamw_kwargs)
+        adamw_optimizer = DistAdamW(adam_groups, **adamw_kwargs)
         # Create the Muon optimizer for the linear layers
         muon_kwargs = dict(lr=matrix_lr, momentum=0.95)
         MuonFactory = DistMuon if ddp else Muon
@@ -306,13 +305,25 @@ class GPT(nn.Module):
             raise ValueError("NaN detected in logits before softcap")
         logits = logits.float() # switch to fp32 for logit softcap and loss computation
         logits = softcap * torch.tanh(logits / softcap) # squash the logits
+        assert logits.dtype == torch.float32, "Logits must be in float32 after softcap"
         if NAN_CHECK and torch.isnan(logits).any():
             raise ValueError("NaN detected in logits")
+        if NAN_CHECK and torch.isinf(logits).any():
+            raise ValueError("Inf detected in logits")
 
         if targets is not None:
             # training: given the targets, compute and return the loss
             # TODO experiment with chunked cross-entropy?
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1, reduction=loss_reduction)
+            if NAN_CHECK and torch.isnan(targets).any():
+                raise ValueError("NaN detected in targets before loss computation")
+            with torch.autocast(device_type="cuda", enabled=False):
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1, reduction=loss_reduction)
+            if NAN_CHECK and torch.isnan(loss).any():
+                print(f"targets: {targets}")
+                # Check if all targets are -1
+                if (targets == -1).all():
+                    print("All targets are -1 (ignore_index), loss is undefined.")
+                raise ValueError("NaN detected in loss")
             return loss
         else:
             # inference: just return the logits directly

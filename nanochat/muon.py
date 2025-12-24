@@ -73,6 +73,9 @@ class Muon(torch.optim.Optimizer):
             for p in params:
                 g = p.grad
                 assert g is not None
+                if g.isnan().any() or g.isinf().any():
+                    print("Skipping Muon update for param due to NaN/Inf in gradient")
+                    continue
                 state = self.state[p]
                 if "momentum_buffer" not in state:
                     state["momentum_buffer"] = torch.zeros_like(g)
@@ -167,15 +170,19 @@ class DistMuon(torch.optim.Optimizer):
                 if owner_idx < len(params):
                     p = params[owner_idx]
                     g = p.grad  # now averaged across ranks
-                    state = self.state[p]
-                    if "momentum_buffer" not in state:
-                        state["momentum_buffer"] = torch.zeros_like(g)
-                    buf: Tensor = state["momentum_buffer"]
-                    buf.lerp_(g, 1.0 - group["momentum"])
-                    g = g.lerp_(buf, group["momentum"]) if group["nesterov"] else buf
-                    g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
-                    scale = (max(1.0, p.size(-2) / p.size(-1)) ** 0.5)
-                    p.add_(g, alpha=-group["lr"] * scale)
+                    if not (g.isnan().any() or g.isinf().any()):
+                        state = self.state[p]
+                        if "momentum_buffer" not in state:
+                            state["momentum_buffer"] = torch.zeros_like(g)
+                        buf: Tensor = state["momentum_buffer"]
+                        buf.lerp_(g, 1.0 - group["momentum"])
+                        g = g.lerp_(buf, group["momentum"]) if group["nesterov"] else buf
+                        g = zeropower_via_newtonschulz5(g, steps=group["ns_steps"])
+                        scale = (max(1.0, p.size(-2) / p.size(-1)) ** 0.5)
+                        p.add_(g, alpha=-group["lr"] * scale)
+                    else:
+                        print(f"Rank {rank} skipping Muon update for param {owner_idx} due to NaN/Inf in gradient")
+
                 # Replicate updated parameters to all ranks
                 ag_input = params[owner_idx] if owner_idx < len(params) else zero_buffer
                 ag_output = params[base_i:base_i + world_size]

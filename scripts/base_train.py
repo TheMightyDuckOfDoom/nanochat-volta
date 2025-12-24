@@ -17,7 +17,7 @@ import argparse
 import time
 from contextlib import nullcontext
 
-import wandb
+import trackio as wandb
 import torch
 
 from nanochat.gpt import GPT, GPTConfig
@@ -41,13 +41,13 @@ parser.add_argument("--device_type", type=str, default="", help="cuda|cpu|mps (e
 parser.add_argument("--depth", type=int, default=20, help="depth of the Transformer model")
 parser.add_argument("--aspect_ratio", type=int, default=64, help="model_dim = depth * aspect_ratio")
 parser.add_argument("--head_dim", type=int, default=128, help="target head dimension for attention")
-parser.add_argument("--max_seq_len", type=int, default=2048, help="max context length")
+parser.add_argument("--max_seq_len", type=int, default=1024, help="max context length")
 # Training horizon (only one used, in order of precedence)
 parser.add_argument("--num_iterations", type=int, default=-1, help="explicit number of optimization steps (-1 = disable)")
 parser.add_argument("--target_flops", type=float, default=-1.0, help="calculate num_iterations to reach target_flops (-1 = disable)")
 parser.add_argument("--target_param_data_ratio", type=int, default=8, help="calculate num_iterations to maintain data:param ratio (Chinchilla=20, -1 = disable)")
 # Optimization
-parser.add_argument("--device_batch_size", type=int, default=2, help="per-device batch size")
+parser.add_argument("--device_batch_size", type=int, default=32, help="per-device batch size")
 parser.add_argument("--total_batch_size", type=int, default=524288, help="total batch size in tokens")
 parser.add_argument("--embedding_lr", type=float, default=0.3, help="learning rate for embedding parameters (Adam)")
 parser.add_argument("--unembedding_lr", type=float, default=0.004, help="learning rate for unembedding parameters (Adam)")
@@ -356,7 +356,7 @@ while True:
     for group in muon_optimizer.param_groups:
         group["momentum"] = muon_momentum
     for opt in optimizers:
-        autoscaler.step(opt)
+        opt.step() #Optimizers check for NaNs or Infs internally
     autoscaler.update()
     model.zero_grad(set_to_none=True)
     synchronize()

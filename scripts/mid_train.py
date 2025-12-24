@@ -14,7 +14,7 @@ from collections import deque
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import time
-import wandb
+import trackio as wandb
 import torch
 from contextlib import nullcontext
 from nanochat.common import compute_init, compute_cleanup, print0, DummyWandb, get_base_dir, autodetect_device_type
@@ -45,7 +45,7 @@ parser.add_argument("--model_step", type=int, default=None, help="model step to 
 # Training horizon
 parser.add_argument("--num_iterations", type=int, default=-1, help="number of optimization steps (-1 = full epoch)")
 # Batch sizes
-parser.add_argument("--max_seq_len", type=int, default=2048, help="max context length")
+parser.add_argument("--max_seq_len", type=int, default=1024, help="max context length")
 parser.add_argument("--device_batch_size", type=int, default=32, help="per-device batch size")
 parser.add_argument("--total_batch_size", type=int, default=524288, help="total batch size in tokens")
 # Optimization
@@ -53,7 +53,7 @@ parser.add_argument("--embedding_lr", type=float, default=0.2, help="learning ra
 parser.add_argument("--unembedding_lr", type=float, default=0.004, help="learning rate for unembedding parameters (Adam)")
 parser.add_argument("--matrix_lr", type=float, default=0.02, help="learning rate for matrix parameters (Muon)")
 parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay for embedding/unembedding parameters (Adam)")
-parser.add_argument("--init_lr_frac", type=float, default=1.0, help="initial LR as fraction of base LR")
+parser.add_argument("--init_lr_frac", type=float, default=0.1, help="initial LR as fraction of base LR")
 # Evaluation
 parser.add_argument("--eval_every", type=int, default=150, help="evaluate val bpb every N steps (-1 = disable)")
 parser.add_argument("--eval_tokens", type=int, default=20*524288, help="number of tokens to evaluate val loss on")
@@ -266,7 +266,8 @@ while True:
     for group in muon_optimizer.param_groups:
         group["momentum"] = muon_momentum
     for opt in optimizers:
-        autoscaler.step(opt)
+        autoscaler.unscale_(opt)
+        opt.step()
     autoscaler.update()
     model.zero_grad(set_to_none=True)
     synchronize()

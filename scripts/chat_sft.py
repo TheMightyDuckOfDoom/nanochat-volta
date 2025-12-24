@@ -13,7 +13,7 @@ import argparse
 import os
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-import wandb
+import trackio as wandb
 import torch
 import torch.distributed as dist
 from contextlib import nullcontext
@@ -54,7 +54,7 @@ parser.add_argument("--embedding_lr", type=float, default=0.2, help="learning ra
 parser.add_argument("--unembedding_lr", type=float, default=0.004, help="learning rate for unembedding parameters (Adam)")
 parser.add_argument("--matrix_lr", type=float, default=0.02, help="learning rate for matrix parameters (Muon)")
 parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay for embedding/unembedding parameters (Adam)")
-parser.add_argument("--init_lr_frac", type=float, default=0.02, help="initial LR as fraction of base LR")
+parser.add_argument("--init_lr_frac", type=float, default=0.002, help="initial LR as fraction of base LR")
 # Evaluation
 parser.add_argument("--eval_every", type=int, default=100, help="evaluate val loss every N steps")
 parser.add_argument("--eval_steps", type=int, default=100, help="number of batches for val loss evaluation")
@@ -71,6 +71,7 @@ master_process = ddp_rank == 0
 ptdtype = torch.float32 if args.dtype == 'float32' else torch.float16
 autocast_ctx = torch.amp.autocast(device_type=device_type, dtype=ptdtype) if device_type == "cuda" else nullcontext()
 autoscaler = torch.amp.GradScaler()
+synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 
 # wandb logging init
 use_dummy_wandb = args.run == "dummy" or not master_process
@@ -128,7 +129,14 @@ def sft_data_generator(dataset, batch_size):
             ids, mask = tokenizer.render_conversation(doc)
             batch.append((ids, mask))
             if len(batch) == batch_size:
-                yield collate_and_yield(batch)
+                inputs, targets = collate_and_yield(batch)
+                # Sometimes all targets are masked out (set to -1), skip these batches as they cause NaN losses
+                # TODO: Seems to only happen with device_batch_size == 1, why does this happen?
+                if (targets == -1).all():
+                    print0("⚠️  Skipping batch with all targets masked out")
+                    batch = []
+                    continue
+                yield inputs, targets
                 batch = []
 
 examples_per_step = args.device_batch_size * ddp_world_size
@@ -237,7 +245,8 @@ for step in range(num_iterations):
 
     # step the optimizers
     for opt in optimizers:
-        autoscaler.step(opt)
+        autoscaler.unscale_(opt)
+        opt.step()
     autoscaler.update()
     model.zero_grad(set_to_none=True)
 

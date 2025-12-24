@@ -19,7 +19,7 @@ torchrun --standalone --nproc_per_node=8 -m scripts.chat_rl -- --run=default
 import argparse
 import os
 import itertools
-import wandb
+import trackio as wandb
 import torch
 import torch.distributed as dist
 from contextlib import nullcontext
@@ -44,7 +44,7 @@ parser.add_argument("--model_step", type=int, default=None, help="model step to 
 # Training horizon
 parser.add_argument("--num_epochs", type=int, default=1, help="number of epochs over GSM8K")
 # Batch sizes / sampling
-parser.add_argument("--device_batch_size", type=int, default=8, help="max batch size per forward pass")
+parser.add_argument("--device_batch_size", type=int, default=4, help="max batch size per forward pass")
 parser.add_argument("--examples_per_step", type=int, default=16, help="total examples per optimization step across all ranks")
 parser.add_argument("--num_samples", type=int, default=16, help="number of samples per example/question")
 # Generation
@@ -310,7 +310,8 @@ for step in range(num_steps):
         for group in opt.param_groups:
             group["lr"] = group["initial_lr"] * lrm
     for opt in optimizers: # then step the optimizers
-        autoscaler.step(opt)
+        autoscaler.unscale_(opt)
+        opt.step()
     autoscaler.update()
     model.zero_grad(set_to_none=True)
     wandb_run.log({
