@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = "==3.13.*"
+requires-python = ">3.13.0, <3.14.0"
 resolution-markers = [
     "extra != 'extra-8-nanochat-cpu' and extra == 'extra-8-nanochat-gpu'",
     "sys_platform != 'darwin' and extra == 'extra-8-nanochat-cpu' and extra != 'extra-8-nanochat-gpu'",

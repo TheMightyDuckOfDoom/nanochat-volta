@@ -248,7 +248,7 @@ for step in range(num_steps):
         print0(f"Step {step} | {', '.join(print_passk)}")
         log_passk = {f"pass@{k}": passk[k - 1].item() for k in range(1, args.device_batch_size + 1)}
         wandb_run.log({
-            "step": step,
+            "train_step": step,
             **log_passk,
         })
 
@@ -299,7 +299,7 @@ for step in range(num_steps):
         mean_sequence_length = mean_sequence_length_tensor.item()
     print0(f"Step {step}/{num_steps} | Average reward: {mean_reward} | Average sequence length: {mean_sequence_length:.2f}")
     wandb_run.log({
-        "step": step,
+        "train_step": step,
         "reward": mean_reward,
         "sequence_length": mean_sequence_length,
     })
@@ -315,7 +315,7 @@ for step in range(num_steps):
     autoscaler.update()
     model.zero_grad(set_to_none=True)
     wandb_run.log({
-        "step": step,
+        "train_step": step,
         "lrm": lrm,
     })
 

@@ -74,8 +74,8 @@ autoscaler = torch.amp.GradScaler()
 synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 
 # wandb logging init
-use_dummy_wandb = args.run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-sft", name=args.run, config=user_config, save_code=True)
+use_dummy_wandb = run == "dummy" or not master_process
+wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-sft", name=run, config=user_config)
 
 # Load the model and tokenizer
 model, tokenizer, meta = load_model(args.source, device, phase="train", model_tag=args.model_tag, step=args.model_step)
@@ -200,7 +200,7 @@ for step in range(num_iterations):
         val_loss = val_loss.item()
         print0(f"Step {step:05d} | Validation loss: {val_loss:.6f}")
         wandb_run.log({
-            "step": step,
+            "train_step": step,
             "val_loss": val_loss,
         })
         model.train()
@@ -216,7 +216,7 @@ for step in range(num_iterations):
         metrics_str = ', '.join(f'{k}: {v:.6f}' for k, v in metrics.items())
         print0(f"Step {step:05d} | {metrics_str}")
         wandb_run.log({
-            "step": step,
+            "train_step": step,
             **metrics,
         })
         model.train()
@@ -255,7 +255,7 @@ for step in range(num_iterations):
     num_tokens_item = num_tokens.item()
     print0(f"Step {step:05d}/{num_iterations:05d} | Training loss: {train_loss_item:.6f}| lrm: {lrm:.6f}| num_tokens: {num_tokens_item:,}")
     wandb_run.log({
-        "step": step,
+        "train_step": step,
         "lrm": lrm,
         "train_loss": train_loss_item,
         "num_tokens": num_tokens_item,
@@ -275,7 +275,7 @@ if master_process:
         model.state_dict(),
         None, # note: we don't bother to save the optimizer state
         {
-            "step": step,
+            "train_step": step,
             "val_loss": val_loss,
             **metrics,
             "model_config": model_config_kwargs,

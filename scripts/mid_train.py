@@ -53,7 +53,7 @@ parser.add_argument("--embedding_lr", type=float, default=0.2, help="learning ra
 parser.add_argument("--unembedding_lr", type=float, default=0.004, help="learning rate for unembedding parameters (Adam)")
 parser.add_argument("--matrix_lr", type=float, default=0.02, help="learning rate for matrix parameters (Muon)")
 parser.add_argument("--weight_decay", type=float, default=0.0, help="weight decay for embedding/unembedding parameters (Adam)")
-parser.add_argument("--init_lr_frac", type=float, default=0.1, help="initial LR as fraction of base LR")
+parser.add_argument("--init_lr_frac", type=float, default=0.05, help="initial LR as fraction of base LR")
 # Evaluation
 parser.add_argument("--eval_every", type=int, default=150, help="evaluate val bpb every N steps (-1 = disable)")
 parser.add_argument("--eval_tokens", type=int, default=20*524288, help="number of tokens to evaluate val loss on")
@@ -210,7 +210,7 @@ while True:
         if val_bpb < min_val_bpb:
             min_val_bpb = val_bpb
         wandb_run.log({
-            "step": step,
+            "train_step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
             "val/bpb": val_bpb,
@@ -227,7 +227,7 @@ while True:
             orig_model.state_dict(),
             [opt.state_dict() for opt in optimizers], # TODO: make sure saving across ranks is done correctly
             {
-                "step": step,
+                "train_step": step,
                 "val_bpb": val_bpb, # loss at last step
                 "model_config": {
                     "sequence_len": args.max_seq_len,
@@ -291,7 +291,7 @@ while True:
     print0(f"step {step:05d} ({pct_done:.2f}%) | loss: {debiased_smooth_loss:.6f} | lrm: {lrm:.2f} | dt: {dt * 1000:.2f}ms | tok/sec: {tok_per_sec:,} | mfu: {mfu:.2f} | total time: {total_training_time/60:.2f}m")
     if step % 10 == 0:
         wandb_run.log({
-            "step": step,
+            "train_step": step,
             "total_training_flops": flops_so_far,
             "total_training_time": total_training_time,
             "train/loss": debiased_smooth_loss,
