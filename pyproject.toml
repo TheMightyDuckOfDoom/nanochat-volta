@@ -21,7 +21,7 @@ dependencies = [
     "torch>=2.8.0",
     "transformers>=4.57.3",
     "uvicorn>=0.36.0",
-    "trackio>=0.13.0",
+    "trackio[gpu]>=0.13.0",
 ]
 
 [dependency-groups]
@@ -57,10 +57,11 @@ explicit = true
 
 [project.optional-dependencies]  
 cpu = [  
-    "torch>=2.8.0",  
+    "torch>=2.8.0",
 ]  
 gpu = [  
-    "torch==2.8.0",  
+    "torch==2.8.0",
+    "nvidia-nvshmem-cu12>=3.3",
 ]  
 
 [tool.uv]

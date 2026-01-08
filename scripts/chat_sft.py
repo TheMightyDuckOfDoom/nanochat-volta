@@ -47,7 +47,7 @@ parser.add_argument("--model_step", type=int, default=None, help="model step to 
 parser.add_argument("--num_epochs", type=int, default=1, help="number of epochs")
 parser.add_argument("--num_iterations", type=int, default=-1, help="override number of iterations (-1 = use num_epochs)")
 # Batch sizes
-parser.add_argument("--device_batch_size", type=int, default=4, help="per-device batch size")
+parser.add_argument("--device_batch_size", type=int, default=2, help="per-device batch size")
 parser.add_argument("--target_examples_per_step", type=int, default=32, help="target examples per optimization step")
 # Optimization
 parser.add_argument("--embedding_lr", type=float, default=0.2, help="learning rate for embedding parameters (Adam)")
@@ -74,8 +74,8 @@ autoscaler = torch.amp.GradScaler()
 synchronize = torch.cuda.synchronize if device_type == "cuda" else lambda: None
 
 # wandb logging init
-use_dummy_wandb = run == "dummy" or not master_process
-wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-sft", name=run, config=user_config)
+use_dummy_wandb = args.run == "dummy" or not master_process
+wandb_run = DummyWandb() if use_dummy_wandb else wandb.init(project="nanochat-sft", name=args.run, config=user_config)
 
 # Load the model and tokenizer
 model, tokenizer, meta = load_model(args.source, device, phase="train", model_tag=args.model_tag, step=args.model_step)

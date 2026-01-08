@@ -47,7 +47,7 @@ parser.add_argument("--num_iterations", type=int, default=-1, help="explicit num
 parser.add_argument("--target_flops", type=float, default=-1.0, help="calculate num_iterations to reach target_flops (-1 = disable)")
 parser.add_argument("--target_param_data_ratio", type=int, default=8, help="calculate num_iterations to maintain data:param ratio (Chinchilla=20, -1 = disable)")
 # Optimization
-parser.add_argument("--device_batch_size", type=int, default=32, help="per-device batch size")
+parser.add_argument("--device_batch_size", type=int, default=16, help="per-device batch size")
 parser.add_argument("--total_batch_size", type=int, default=524288, help="total batch size in tokens")
 parser.add_argument("--embedding_lr", type=float, default=0.3, help="learning rate for embedding parameters (Adam)")
 parser.add_argument("--unembedding_lr", type=float, default=0.004, help="learning rate for unembedding parameters (Adam)")
@@ -356,6 +356,7 @@ while True:
     for group in muon_optimizer.param_groups:
         group["momentum"] = muon_momentum
     for opt in optimizers:
+        autoscaler.unscale_(opt)
         opt.step() #Optimizers check for NaNs or Infs internally
     autoscaler.update()
     model.zero_grad(set_to_none=True)

@@ -46,7 +46,7 @@ parser.add_argument("--model_step", type=int, default=None, help="model step to 
 parser.add_argument("--num_iterations", type=int, default=-1, help="number of optimization steps (-1 = full epoch)")
 # Batch sizes
 parser.add_argument("--max_seq_len", type=int, default=1024, help="max context length")
-parser.add_argument("--device_batch_size", type=int, default=32, help="per-device batch size")
+parser.add_argument("--device_batch_size", type=int, default=16, help="per-device batch size")
 parser.add_argument("--total_batch_size", type=int, default=524288, help="total batch size in tokens")
 # Optimization
 parser.add_argument("--embedding_lr", type=float, default=0.2, help="learning rate for embedding parameters (Adam)")
